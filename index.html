@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easy Link</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-top: 30px;
+        }
+
+        .upload-module {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            width: 400px;
+            margin: 20px auto;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .download-module {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            width: 400px;
+            margin: 20px auto;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        input[type="file"],
+        input[type="number"],
+        button {
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+
+        button {
+            background-color: #007bff;
+            color: #fff;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        p {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .input-box {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        input[type="number"] {
+            width: 40px;
+            height: 40px;
+            text-align: center;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+<h1>Easy Link</h1>
+
+<!-- 上传模块 -->
+<div class="upload-module">
+    <input type="file" id="uploadFileInput">
+    <button onclick="uploadFile()">上传</button>
+    <p id="uploadedFileName"></p>
+    <p id="backendResponseUpload"></p>
+</div>
+
+<!-- 下载模块 -->
+<div class="download-module">
+    <div class="input-box">
+        <input type="number" id="input1" oninput="moveFocus(this, 'input2')">
+        <input type="number" id="input2" oninput="moveFocus(this, 'input3')">
+        <input type="number" id="input3" oninput="moveFocus(this, 'input4')">
+        <input type="number" id="input4">
+    </div>
+    <button onclick="downloadFile()">下载</button>
+</div>
+
+<script>
+    function moveFocus(currentInput, nextInputId) {
+        if (currentInput.value.length === 1) {
+            document.getElementById(nextInputId).focus();
+        }
+    }
+
+    // 上传文件函数
+    function uploadFile() {
+        const fileInput = document.getElementById('uploadFileInput');
+        const file = fileInput.files[0];
+        if (file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            fetch('http://localhost:8080/upload', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('uploadedFileName').textContent = `上传的文件名：${file.name}`;
+                    document.getElementById('backendResponseUpload').textContent = `后端返回：${data}`;
+                })
+                .catch(error => console.error('上传错误：', error));
+        }
+    }
+
+    // 下载文件函数
+    async function downloadFile() {
+        const input1 = document.getElementById('input1').value;
+        const input2 = document.getElementById('input2').value;
+        const input3 = document.getElementById('input3').value;
+        const input4 = document.getElementById('input4').value;
+        const combinedParams = `${input1}${input2}${input3}${input4}`;
+        const url = `http://localhost:8080/download?code=${combinedParams}`;
+        try {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            const dispositionHeader = response.headers.get('Content-Disposition');
+            if (dispositionHeader) {
+                const filename = dispositionHeader.split('filename=')[1];
+                const urlObject = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = urlObject;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } else {
+                throw new Error('Content-Disposition header not found');
+            }
+        } catch (error) {
+            console.error('下载错误：', error);
+        }
+    }
+</script>
+</body>
+
+</html>

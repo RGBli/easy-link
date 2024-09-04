@@ -109,6 +109,21 @@ func RateLimitMiddleware() gin.HandlerFunc {
 func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+
+	// 添加 CORS 中间件
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	})
+
 	r.GET("/ping", RateLimitMiddleware(), func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"message": "pong",
@@ -173,6 +188,8 @@ func main() {
 
 		c.Header("Content-Disposition", "attachment; filename="+filepath.Base(filePath))
 		c.Header("Content-Type", "application/octet-stream")
+		// 设置允许暴露的响应头
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
 		c.Status(http.StatusOK)
 
 		_, err = io.Copy(c.Writer, file)
