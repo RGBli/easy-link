@@ -265,5 +265,5 @@ func getFirstFileInDirectory(dirPath string) string {
 }
 
 func doClean(dir string) error {
-	return os.Remove(dir)
+	return os.RemoveAll(dir)
 }
