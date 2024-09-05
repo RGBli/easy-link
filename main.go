@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"mime"
 	"net/http"
 	"os"
 	"path"
@@ -18,13 +19,13 @@ import (
 )
 
 const (
-	maxBytes             = 1 << 20
+	maxBytes             = (1 << 20) * 100 // 每次上传最多100MB
 	codeLen              = 4
 	savePath             = "./"
 	resourceTTL          = 8 * time.Hour
-	cleanDurationFormula = "0 * * * *"
-	tokenRate            = 1  // 每秒生成的令牌数
-	bucketCapacity       = 20 // 令牌桶容量
+	cleanDurationFormula = "0 * * * *" // 每小时执行 cronjob
+	tokenRate            = 1           // 每秒生成的令牌数
+	bucketCapacity       = 20          // 令牌桶容量
 	maxDownloadTimes     = 3
 )
 
@@ -137,7 +138,7 @@ func main() {
 			return
 		}
 
-		// 大于1MB不接收
+		// 文件大于 maxBytes 不接收
 		if file.Size > (maxBytes) {
 			c.String(http.StatusBadRequest, "File too large")
 			return
@@ -178,7 +179,6 @@ func main() {
 
 		dirPath := path.Join(savePath, codeStr)
 		filePath := getFirstFileInDirectory(dirPath)
-		fmt.Printf("filePath: %v", path.Join(dirPath))
 		file, err := os.Open(filePath)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open file"})
@@ -186,7 +186,8 @@ func main() {
 		}
 		defer file.Close()
 
-		c.Header("Content-Disposition", "attachment; filename="+filepath.Base(filePath))
+		encodedFilename := mime.QEncoding.Encode("UTF-8", filepath.Base(file.Name()))
+		c.Header("Content-Disposition", "attachment; filename="+encodedFilename)
 		c.Header("Content-Type", "application/octet-stream")
 		// 设置允许暴露的响应头
 		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
