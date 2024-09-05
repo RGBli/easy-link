@@ -118,7 +118,7 @@
         if (file) {
             const formData = new FormData();
             formData.append('file', file);
-            fetch('http://localhost:8080/upload', {
+            fetch('http://0.0.0.0:8080/upload', {
                 method: 'POST',
                 body: formData
             })
@@ -138,7 +138,7 @@
         const input3 = document.getElementById('input3').value;
         const input4 = document.getElementById('input4').value;
         const combinedParams = `${input1}${input2}${input3}${input4}`;
-        const url = `http://localhost:8080/download?code=${combinedParams}`;
+        const url = `http://0.0.0.0:8080/download?code=${combinedParams}`;
         try {
             const response = await fetch(url);
             const blob = await response.blob();
