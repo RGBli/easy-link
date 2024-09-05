@@ -23,9 +23,9 @@ const (
 	codeLen              = 4
 	savePath             = "./"
 	resourceTTL          = 8 * time.Hour
-	cleanDurationFormula = "0 * * * *" // 每小时执行 cronjob
-	tokenRate            = 1           // 每秒生成的令牌数
-	bucketCapacity       = 20          // 令牌桶容量
+	cleanDurationFormula = "0 0 * * *?" // 每小时执行 cronjob
+	tokenRate            = 1            // 每秒生成的令牌数
+	bucketCapacity       = 20           // 令牌桶容量
 	maxDownloadTimes     = 3
 )
 
