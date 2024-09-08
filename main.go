@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/robfig/cron/v3"
 	"io"
 	"log"
@@ -23,7 +25,7 @@ const (
 	codeLen              = 4
 	savePath             = "./"
 	resourceTTL          = 8 * time.Hour
-	cleanDurationFormula = "0 * * * *" // 每小时执行 cronjob
+	cleanDurationFormula = "0 3 * * *" // 每天凌晨三点执行 cronjob
 	tokenRate            = 1           // 每秒生成的令牌数
 	bucketCapacity       = 20          // 令牌桶容量
 	maxDownloadTimes     = 3
@@ -46,19 +48,18 @@ func NewIPLimiter(capacity int, rate time.Duration) *IPLimiter {
 }
 
 var ipLimiterMap = sync.Map{}
-var codesMap = sync.Map{}
 
 type ResourceInfo struct {
-	uploadTS               time.Time
-	bytes                  int
-	availableDownloadTimes int
+	UploadTS               time.Time
+	Bytes                  int
+	AvailableDownloadTimes int
 }
 
 func NewResourceInfo(uploadTS time.Time, bytes, availableDownloadTimes int) *ResourceInfo {
 	return &ResourceInfo{
-		uploadTS:               uploadTS,
-		bytes:                  bytes,
-		availableDownloadTimes: availableDownloadTimes,
+		UploadTS:               uploadTS,
+		Bytes:                  bytes,
+		AvailableDownloadTimes: availableDownloadTimes,
 	}
 }
 
@@ -107,9 +108,18 @@ func RateLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
+func createRedisClient() *redis.Client {
+	return redis.NewClient(&redis.Options{
+		Addr:     "60.204.242.203:6379", // Redis 服务器地址和端口
+		Password: "213222204",           // 如果有密码，设置密码
+		DB:       0,                     // 使用的数据库编号
+	})
+}
+
 func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+	redisClient := createRedisClient()
 
 	// 添加 CORS 中间件
 	r.Use(func(c *gin.Context) {
@@ -151,12 +161,20 @@ func main() {
 		for {
 			code = rand.Intn(int(math.Pow(10, codeLen)))
 			codeStr = codeToString(code, codeLen)
-			if _, ok := codesMap.Load(codeStr); !ok {
+			_, err := redisClient.Get(c, codeStr).Result()
+			if err == redis.Nil {
 				break
 			}
 		}
-		codesMap.Store(codeStr, NewResourceInfo(time.Now(), int(file.Size), maxDownloadTimes))
-		fmt.Println(codesMap)
+
+		resourceInfo := NewResourceInfo(time.Now(), int(file.Size), maxDownloadTimes)
+		resourceInfoBytes, err := json.Marshal(resourceInfo)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Printf("resource json: %v", string(resourceInfoBytes))
+		redisClient.Set(c, codeStr, string(resourceInfoBytes), resourceTTL)
 
 		dst := path.Join(savePath, codeStr, file.Filename)
 		fmt.Println(dst)
@@ -171,8 +189,19 @@ func main() {
 
 	r.GET("/download", RateLimitMiddleware(), func(c *gin.Context) {
 		codeStr := c.Query("code")
-		resourceInfo, ok := codesMap.Load(codeStr)
-		if !ok || resourceInfo.(*ResourceInfo).availableDownloadTimes == 0 || time.Now().Sub(resourceInfo.(*ResourceInfo).uploadTS) > resourceTTL {
+		resourceInfoStr, err := redisClient.Get(c, codeStr).Result()
+		if err != nil {
+			c.String(http.StatusBadRequest, "Invalid code")
+			return
+		}
+
+		var resourceInfo ResourceInfo
+		err = json.Unmarshal([]byte(resourceInfoStr), &resourceInfo)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "资源信息有误")
+			return
+		}
+		if resourceInfo.AvailableDownloadTimes == 0 || time.Now().Sub(resourceInfo.UploadTS) > resourceTTL {
 			c.String(http.StatusBadRequest, "Invalid code")
 			return
 		}
@@ -198,26 +227,23 @@ func main() {
 			log.Println(err)
 		}
 
-		resourceInfo.(*ResourceInfo).availableDownloadTimes--
-		codesMap.Store(codeStr, resourceInfo)
+		resourceInfo.AvailableDownloadTimes--
+		resourceInfoBytes, err := json.Marshal(resourceInfo)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println(string(resourceInfoBytes))
+		redisClient.Set(c, codeStr, string(resourceInfoBytes), redis.KeepTTL)
 	})
 
-	// 创建一个cron调度器
+	// 创建一个 cron 调度器
 	cronJob := cron.New()
 	// 定义定时任务
 	spec := cleanDurationFormula
 	// 注册定时任务
 	_, err := cronJob.AddFunc(spec, func() {
-		fmt.Println("执行定时任务")
-		codesMap.Range(func(k, v interface{}) bool {
-			if time.Now().Sub(v.(*ResourceInfo).uploadTS) > resourceTTL {
-				err := doClean(path.Join(savePath, k.(string)))
-				if err != nil {
-					fmt.Println("删除失败")
-				}
-			}
-			return true
-		})
+		doClean(savePath)
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -265,5 +291,19 @@ func getFirstFileInDirectory(dirPath string) string {
 }
 
 func doClean(dir string) error {
-	return os.RemoveAll(dir)
+	now := time.Now()
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			if now.Sub(info.ModTime()) > resourceTTL {
+				fmt.Printf("Deleting directory: %s\n", path)
+				return os.RemoveAll(path)
+			}
+		}
+		return nil
+	})
+	return err
 }
